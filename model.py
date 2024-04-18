@@ -15,6 +15,7 @@ def random_indexes(size : int):
     return forward_indexes, backward_indexes
 
 def take_indexes(sequences, indexes):
+    #gather reorders repeat is used to give indexes the right size repeting the index in to the c dimention
     return torch.gather(sequences, 0, repeat(indexes, 't b -> t b c', c=sequences.shape[-1]))
 
 class PatchShuffle(torch.nn.Module):
@@ -23,25 +24,28 @@ class PatchShuffle(torch.nn.Module):
         self.ratio = ratio
 
     def forward(self, patches : torch.Tensor):
-        T, B, C = patches.shape
+        T, B, C = patches.shape #what are T, B C (total h*w batch/instances chanels?)
         remain_T = int(T * (1 - self.ratio))
 
-        indexes = [random_indexes(T) for _ in range(B)]
+        indexes = [random_indexes(T) for _ in range(B)] #indexes are just linierindexes into the flaatened h*w image
         forward_indexes = torch.as_tensor(np.stack([i[0] for i in indexes], axis=-1), dtype=torch.long).to(patches.device)
         backward_indexes = torch.as_tensor(np.stack([i[1] for i in indexes], axis=-1), dtype=torch.long).to(patches.device)
 
         patches = take_indexes(patches, forward_indexes)
+        #print('patches dim:', patches.shape)
         patches = patches[:remain_T]
+        #print('patches after remain_T :', patches.shape)
 
         return patches, forward_indexes, backward_indexes
 
 class MAE_Encoder(torch.nn.Module):
     def __init__(self,
                  image_size=32,
+                 image_channels=3,
                  patch_size=2,
                  emb_dim=192,
                  num_layer=12,
-                 num_head=3,
+                 num_head=4, 
                  mask_ratio=0.75,
                  ) -> None:
         super().__init__()
@@ -49,8 +53,8 @@ class MAE_Encoder(torch.nn.Module):
         self.cls_token = torch.nn.Parameter(torch.zeros(1, 1, emb_dim))
         self.pos_embedding = torch.nn.Parameter(torch.zeros((image_size // patch_size) ** 2, 1, emb_dim))
         self.shuffle = PatchShuffle(mask_ratio)
-
-        self.patchify = torch.nn.Conv2d(3, emb_dim, patch_size, patch_size)
+        #three chanels
+        self.patchify = torch.nn.Conv2d(image_channels, emb_dim, patch_size, patch_size)
 
         self.transformer = torch.nn.Sequential(*[Block(emb_dim, num_head) for _ in range(num_layer)])
 
@@ -63,13 +67,18 @@ class MAE_Encoder(torch.nn.Module):
         trunc_normal_(self.pos_embedding, std=.02)
 
     def forward(self, img):
-        patches = self.patchify(img)
+        patches = self.patchify(img) #convoves by 2x2
+        print('patches dim after conv:', patches.shape)
         patches = rearrange(patches, 'b c h w -> (h w) b c')
         patches = patches + self.pos_embedding
-
+        print('patches dim after rearange:', patches.shape)
         patches, forward_indexes, backward_indexes = self.shuffle(patches)
-
+        #print('patches dim after shuffle:', patches.shape)
+        #does this do anything?
+        #print('cls expand shape:', self.cls_token.expand(-1, patches.shape[1], -1).shape)
+        #adds a cls token with out a pos_embeding to the end? begining?
         patches = torch.cat([self.cls_token.expand(-1, patches.shape[1], -1), patches], dim=0)
+        #print('patches after cat dim:', patches.shape)
         patches = rearrange(patches, 't b c -> b t c')
         features = self.layer_norm(self.transformer(patches))
         features = rearrange(features, 'b t c -> t b c')
@@ -79,10 +88,11 @@ class MAE_Encoder(torch.nn.Module):
 class MAE_Decoder(torch.nn.Module):
     def __init__(self,
                  image_size=32,
+                 image_channels=3,
                  patch_size=2,
                  emb_dim=192,
                  num_layer=4,
-                 num_head=3,
+                 num_head=4,
                  ) -> None:
         super().__init__()
 
@@ -91,7 +101,7 @@ class MAE_Decoder(torch.nn.Module):
 
         self.transformer = torch.nn.Sequential(*[Block(emb_dim, num_head) for _ in range(num_layer)])
 
-        self.head = torch.nn.Linear(emb_dim, 3 * patch_size ** 2)
+        self.head = torch.nn.Linear(emb_dim, image_channels * patch_size ** 2)
         self.patch2img = Rearrange('(h w) b (c p1 p2) -> b c (h p1) (w p2)', p1=patch_size, p2=patch_size, h=image_size//patch_size)
 
         self.init_weight()
@@ -124,6 +134,7 @@ class MAE_Decoder(torch.nn.Module):
 class MAE_ViT(torch.nn.Module):
     def __init__(self,
                  image_size=32,
+                 image_channels=3,
                  patch_size=2,
                  emb_dim=192,
                  encoder_layer=12,
@@ -134,8 +145,8 @@ class MAE_ViT(torch.nn.Module):
                  ) -> None:
         super().__init__()
 
-        self.encoder = MAE_Encoder(image_size, patch_size, emb_dim, encoder_layer, encoder_head, mask_ratio)
-        self.decoder = MAE_Decoder(image_size, patch_size, emb_dim, decoder_layer, decoder_head)
+        self.encoder = MAE_Encoder(image_size, image_channels, patch_size, emb_dim, encoder_layer, encoder_head, mask_ratio)
+        self.decoder = MAE_Decoder(image_size, image_channels, patch_size, emb_dim, decoder_layer, decoder_head)
 
     def forward(self, img):
         features, backward_indexes = self.encoder(img)
@@ -165,17 +176,23 @@ class ViT_Classifier(torch.nn.Module):
 
 
 if __name__ == '__main__':
-    shuffle = PatchShuffle(0.75)
-    a = torch.rand(16, 2, 10)
-    b, forward_indexes, backward_indexes = shuffle(a)
-    print(b.shape)
+    #shuffle = PatchShuffle(0.75)
+    #a = torch.rand(16, 2, 10)
+    #print('a: ',a.shape)
+    #b, forward_indexes, backward_indexes = shuffle(a)
+    #print('b: ',b.shape)
+    #print('forward index: ',forward_indexes.shape)
 
-    img = torch.rand(2, 3, 32, 32)
+    #example, chanel(color),w,h
+    img = torch.rand(1, 3, 32, 32)
+    print('img dim:', img.shape)
     encoder = MAE_Encoder()
     decoder = MAE_Decoder()
     features, backward_indexes = encoder(img)
-    print(forward_indexes.shape)
+    #print('backward index: ',backward_indexes.shape)
+    #print(backward_indexes)
     predicted_img, mask = decoder(features, backward_indexes)
-    print(predicted_img.shape)
+    #print('mask:', mask.shape)
+    #print(predicted_img.shape)
     loss = torch.mean((predicted_img - img) ** 2 * mask / 0.75)
-    print(loss)
+    #print(loss)
