@@ -11,6 +11,11 @@ from timm.models.vision_transformer import Block
 def random_indexes(size : int):
     forward_indexes = np.arange(size)
     np.random.shuffle(forward_indexes)
+    if np.random.random() < 0.5:
+        forward_indexes=[i for i in forward_indexes if i%2==1]+[i for i in forward_indexes if i%2==0]
+    else:
+        forward_indexes=[i for i in forward_indexes if i%2==0]+[i for i in forward_indexes if i%2==1]
+        
     backward_indexes = np.argsort(forward_indexes)
     return forward_indexes, backward_indexes
 
@@ -48,7 +53,7 @@ class MAE_Encoder(torch.nn.Module):
                  emb_dim=192,
                  num_layer=12,
                  num_head=4, 
-                 mask_ratio=0.75,
+                 mask_ratio=0.75
                  ) -> None:
         super().__init__()
 
@@ -56,7 +61,7 @@ class MAE_Encoder(torch.nn.Module):
         self.pos_embedding = torch.nn.Parameter(torch.zeros((image_width // patch_width * image_height // patch_height , 1, emb_dim)))
         self.shuffle = PatchShuffle(mask_ratio)
         #three chanels
-        #self.patchify = torch.nn.Conv2d(image_channels, emb_dim, patch_width, patch_height)
+        
         self.patchify =torch.nn.Conv2d(image_channels, emb_dim, (1, patch_width),(1,patch_width))
         self.transformer = torch.nn.Sequential(*[Block(emb_dim, num_head) for _ in range(num_layer)])
 
@@ -76,9 +81,7 @@ class MAE_Encoder(torch.nn.Module):
         #print('patches dim after rearange:', patches.shape)
         patches = patches + self.pos_embedding
         patches, forward_indexes, backward_indexes = self.shuffle(patches)
-        #print('patches dim after shuffle:', patches.shape)
-        #does this do anything?
-        #print('cls expand shape:', self.cls_token.expand(-1, patches.shape[1], -1).shape)
+       
         #adds a cls token with out a pos_embeding to the end? begining?
         patches = torch.cat([self.cls_token.expand(-1, patches.shape[1], -1), patches], dim=0)
         #print('patches after cat dim:', patches.shape)
@@ -97,7 +100,7 @@ class MAE_Decoder(torch.nn.Module):
                  patch_height=2,
                  emb_dim=192,
                  num_layer=4,
-                 num_head=4,
+                 num_head=4
                  ) -> None:
         super().__init__()
 
@@ -148,7 +151,7 @@ class MAE_ViT(torch.nn.Module):
                  encoder_head=3,
                  decoder_layer=4,
                  decoder_head=3,
-                 mask_ratio=0.75,
+                 mask_ratio=0.75
                  ) -> None:
         super().__init__()
                  

@@ -122,9 +122,10 @@ if __name__ == '__main__':
 
         ''' visualize the first 16 predicted images on val dataset'''
         model.eval()
-        if e % 2 ==0:
+        if e % 2 == 1:
             with torch.no_grad():
-                if e % 10 ==0:
+                if e % 10 == 1 :
+                    print('sent example')
                     val_img = torch.stack([val_dataset[i][0] for i in range(4)])
                     val_img = val_img.to(device)
                     predicted_val_img, mask = model(val_img)
@@ -143,6 +144,7 @@ if __name__ == '__main__':
     #            writer.add_scalar('mae_val_loss', avg_loss, global_step=e)
                 val_metrics={
                     "Val Loss": avg_val_loss,
+                    "Loss Delta": abs(avg_val_loss-avg_loss)
                 }
                 wandb.log({**metrics,**val_metrics})  
                 
