@@ -15,13 +15,13 @@ from tqdm import tqdm
 
 from model import *
 from utils import setup_seed
-
+import wandb
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--max_device_batch_size', type=int, default=32)
-    parser.add_argument('--base_learning_rate', type=float, default=1.5e-4)
+    parser.add_argument('--batch_size', type=int, default=192)
+    parser.add_argument('--max_device_batch_size', type=int, default=192)
+    parser.add_argument('--base_learning_rate', type=float, default=1.2e-3)
     parser.add_argument('--weight_decay', type=float, default=0.05)
     parser.add_argument('--mask_ratio', type=float, default=0.75)
     parser.add_argument('--total_epoch', type=int, default=2000)
@@ -32,7 +32,26 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     setup_seed(args.seed)
+    wandb.login()
+    wandb.init(config=args)
 
+    wandb.init(
+      # Set the project where this run will be logged
+      project="MAE-US", 
+      # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
+      #name=f"experiment_{run}", 
+      # Track hyperparameters and run metadata
+      config={
+      "learning_rate": args.base_learning_rate,
+      "architecture": "MAE",
+      "dataset": "SL-US",
+      "epochs": args.total_epoch,
+      })
+  
+ 
+
+
+    
     batch_size = args.batch_size
     load_batch_size = min(args.max_device_batch_size, batch_size)
 
@@ -51,7 +70,7 @@ if __name__ == '__main__':
         def __getitem__(self, index):
             #image=read_image(self.files[index])
             #image=rearrange(torchvision.io.read_image(self.files[index]), 'b h w -> h w b')
-            image=torchvision.io.read_image(self.files[index]).to(torch.float)/255
+            image=torchvision.io.read_image(self.files[index]).to(torch.float)/255.0
             
             if self.transform:
                 image = self.transform(image)
@@ -62,10 +81,11 @@ if __name__ == '__main__':
         
     #train_dataset = Images(args.data_path+'train/',   transform=Compose([Lambda(lambda x: x.repeat(1, 1, 3) ), Normalize(0.5, 0.5)]))
     #val_dataset = Images(args.data_path+'validation/',   transform=Compose([Lambda(lambda x: x.repeat(1, 1, 3) ), Normalize(0.5, 0.5)]))
-    train_dataset = Images(args.data_path+'train/')
-    val_dataset = Images(args.data_path+'validation/')
+    train_dataset = Images(args.data_path+'train/',transform=Compose([ Normalize(0.5, 0.5)]))
+    val_dataset = Images(args.data_path+'validation/',transform=Compose([Normalize(0.5, 0.5)]))
     
     dataloader = torch.utils.data.DataLoader(train_dataset, load_batch_size, shuffle=True, num_workers=4)  # type: ignore
+    val_dataloader = torch.utils.data.DataLoader(val_dataset, load_batch_size, shuffle=True, num_workers=4)  # type: ignore
     
     writer = SummaryWriter(os.path.join('logs', 'US', 'mae-pretrain'))
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -80,7 +100,8 @@ if __name__ == '__main__':
     for e in range(args.total_epoch):
         model.train()
         losses = []
-        for img, label in tqdm(iter(dataloader)):
+#        for img, label in tqdm(iter(dataloader)):
+        for img, label in iter(dataloader):
             step_count += 1
             img = img.to(device)
             predicted_img, mask = model(img)
@@ -92,19 +113,39 @@ if __name__ == '__main__':
             losses.append(loss.item())
         lr_scheduler.step()
         avg_loss = sum(losses) / len(losses)
-        writer.add_scalar('mae_loss', avg_loss, global_step=e)
+#        writer.add_scalar('mae_loss', avg_loss, global_step=e)
+        metrics={
+           "Training Loss": avg_loss
+        }
+        wandb.log(metrics)
         print(f'In epoch {e}, average traning loss is {avg_loss}.')
 
         ''' visualize the first 16 predicted images on val dataset'''
         model.eval()
-        with torch.no_grad():
-            val_img = torch.stack([val_dataset[i][0] for i in range(4)])
-            val_img = val_img.to(device)
-            predicted_val_img, mask = model(val_img)
-            predicted_val_img = predicted_val_img * mask + val_img * (1 - mask)
-            img = torch.cat([val_img * (1 - mask), predicted_val_img, val_img], dim=0)
-            img = rearrange(img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=2, v=3)
-            writer.add_image('mae_image', (img + 1) / 2, global_step=e)
-        
-        ''' save model '''
-        torch.save(model, args.model_path)
+        if e % 2 ==0:
+            with torch.no_grad():
+                if e % 10 ==0:
+                    val_img = torch.stack([val_dataset[i][0] for i in range(4)])
+                    val_img = val_img.to(device)
+                    predicted_val_img, mask = model(val_img)
+                    predicted_val_img = predicted_val_img * mask + val_img * (1 - mask)
+                    img = torch.cat([val_img * (1 - mask), predicted_val_img, val_img], dim=0)
+                    img = rearrange(img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=2, v=3)
+                    wandb.log({"examples": [wandb.Image(img)]}) 
+                
+                val_losses = []
+                for img, label in iter(val_dataloader):
+                    img = img.to(device)
+                    predicted_img, mask = model(img)
+                    loss = torch.mean((predicted_img - img) ** 2 * mask) / args.mask_ratio
+                    val_losses.append(loss.item())
+                avg_val_loss = sum(val_losses) / len(val_losses)
+    #            writer.add_scalar('mae_val_loss', avg_loss, global_step=e)
+                val_metrics={
+                    "Val Loss": avg_val_loss,
+                }
+                wandb.log({**metrics,**val_metrics})  
+                
+            ''' save model '''
+            torch.save(model, args.model_path)
+    wandb.finish()
