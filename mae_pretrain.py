@@ -19,9 +19,9 @@ import wandb
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--batch_size', type=int, default=192)
-    parser.add_argument('--max_device_batch_size', type=int, default=192)
-    parser.add_argument('--base_learning_rate', type=float, default=1.2e-3)
+    parser.add_argument('--batch_size', type=int, default=192+64)
+    parser.add_argument('--max_device_batch_size', type=int, default=192+64)
+    parser.add_argument('--base_learning_rate', type=float, default=3.0e-3)
     parser.add_argument('--weight_decay', type=float, default=0.05)
     parser.add_argument('--mask_ratio', type=float, default=0.75)
     parser.add_argument('--total_epoch', type=int, default=2000)
@@ -84,13 +84,13 @@ if __name__ == '__main__':
     train_dataset = Images(args.data_path+'train/',transform=Compose([ Normalize(0.5, 0.5)]))
     val_dataset = Images(args.data_path+'validation/',transform=Compose([Normalize(0.5, 0.5)]))
     
-    dataloader = torch.utils.data.DataLoader(train_dataset, load_batch_size, shuffle=True, num_workers=4)  # type: ignore
-    val_dataloader = torch.utils.data.DataLoader(val_dataset, load_batch_size, shuffle=True, num_workers=4)  # type: ignore
+    dataloader = torch.utils.data.DataLoader(train_dataset, load_batch_size, shuffle=True, num_workers=3)  # type: ignore
+    val_dataloader = torch.utils.data.DataLoader(val_dataset, load_batch_size, shuffle=True, num_workers=3)  # type: ignore
     
     writer = SummaryWriter(os.path.join('logs', 'US', 'mae-pretrain'))
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    model = MAE_ViT(image_width=158,image_height=56,patch_height=1,patch_width=158,mask_ratio=args.mask_ratio,image_channels=1).to(device)
+    model = MAE_ViT(image_width=158,image_height=56,patch_height=1,patch_width=158,emb_dim=90,mask_ratio=args.mask_ratio,image_channels=1).to(device)
     optim = torch.optim.AdamW(model.parameters(), lr=args.base_learning_rate * args.batch_size / 256, betas=(0.9, 0.95), weight_decay=args.weight_decay)
     lr_func = lambda epoch: min((epoch + 1) / (args.warmup_epoch + 1e-8), 0.5 * (math.cos(epoch / args.total_epoch * math.pi) + 1))
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optim, lr_lambda=lr_func, verbose=True)
@@ -105,7 +105,10 @@ if __name__ == '__main__':
             step_count += 1
             img = img.to(device)
             predicted_img, mask = model(img)
-            loss = torch.mean((predicted_img - img) ** 2 * mask) / args.mask_ratio
+            #is there a NaN in the predicted images?causeing this to fail 
+            #loss = torch.mean(torch.sqrt(torch.square(predicted_img - img)) * mask) / args.mask_ratio
+            loss = torch.mean((torch.square(predicted_img - img)) * mask) / args.mask_ratio
+ #           loss = torch.mean(abs(predicted_img - img) * mask) / args.mask_ratio
             loss.backward()
             if step_count % steps_per_update == 0:
                 optim.step()
@@ -135,16 +138,29 @@ if __name__ == '__main__':
                     wandb.log({"examples": [wandb.Image(img)]}) 
                 
                 val_losses = []
+                val_losses_MSE = []
+                val_losses_total_mae = []
+                
                 for img, label in iter(val_dataloader):
                     img = img.to(device)
                     predicted_img, mask = model(img)
                     loss = torch.mean((predicted_img - img) ** 2 * mask) / args.mask_ratio
+                    val_losses_MSE.append(loss.item())
+
+                    loss = torch.mean(abs(predicted_img - img) * mask) / args.mask_ratio
                     val_losses.append(loss.item())
+                    
+                    loss = torch.mean(abs((predicted_img * mask + img * (1 - mask)) - img))
+                    val_losses_total_mae.append(loss.item())
                 avg_val_loss = sum(val_losses) / len(val_losses)
+                avg_val_loss_MSE = sum(val_losses_MSE) / len(val_losses_MSE)
+                avg_val_loss_total_mae = sum(val_losses_total_mae) / len(val_losses_total_mae)
     #            writer.add_scalar('mae_val_loss', avg_loss, global_step=e)
                 val_metrics={
-                    "Val Loss": avg_val_loss,
-                    "Loss Delta": abs(avg_val_loss-avg_loss)
+                    "Val Loss MAE": avg_val_loss,
+                    "Val Loss MSE": avg_val_loss_MSE,
+                    "Val Loss total MAE": avg_val_loss_total_mae,
+                    "Loss Delta": avg_val_loss_MSE-avg_loss
                 }
                 wandb.log({**metrics,**val_metrics})  
                 
