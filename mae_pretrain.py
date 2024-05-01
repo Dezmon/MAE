@@ -30,10 +30,11 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='vit-t-mae.pt')
 
     args = parser.parse_args()
+    args = parser.parse_args()
 
     setup_seed(args.seed)
     wandb.login()
-    wandb.init(config=args)
+    wandb.init(config=args) # type: ignore
 
     wandb.init(
       # Set the project where this run will be logged
@@ -71,7 +72,7 @@ if __name__ == '__main__':
             #image=read_image(self.files[index])
             #image=rearrange(torchvision.io.read_image(self.files[index]), 'b h w -> h w b')
             image=torchvision.io.read_image(self.files[index]).to(torch.float)/255.0
-            
+            #noise = torch.randn(image.size()) * 0.2
             if self.transform:
                 image = self.transform(image)
             return  image, 'noLabel'
