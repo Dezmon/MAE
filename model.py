@@ -32,12 +32,12 @@ class PatchShuffle(torch.nn.Module):
     def forward(self, patches : torch.Tensor,indexes=None):
         T, B, C = patches.shape #what are T, B C (total h*w batch/instances chanels?)
         remain_T = int(T * (1 - self.ratio))
-        if np.random.random() < 0.5:
-            remain_T=remain_T+12
+        if np.random.random() < 0.5: #randomly add a few extra scanelines
+            remain_T=remain_T + 5
         else:
             remain_T=remain_T
         indexes = [random_indexes(T) for _ in range(B)] #indexes are just linierindexes into the flaatened h*w image
-        #print(indexes)
+        
         forward_indexes = torch.as_tensor(np.stack([i[0] for i in indexes], axis=-1), dtype=torch.long).to(patches.device)
         backward_indexes = torch.as_tensor(np.stack([i[1] for i in indexes], axis=-1), dtype=torch.long).to(patches.device)
 
@@ -173,6 +173,7 @@ class MAE_ViT(torch.nn.Module):
 
 
 if __name__ == '__main__':
+    '''Testing/Trial Code'''
     #shuffle = PatchShuffle(0.75)
     #a = torch.rand(16, 2, 10)
     #print('a: ',a.shape)
