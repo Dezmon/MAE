@@ -77,7 +77,10 @@ class MAE_Encoder(torch.nn.Module):
     def init_weight(self):
         trunc_normal_(self.cls_token, std=.02)
         trunc_normal_(self.pos_embedding, std=.02)
-
+    
+    def set_mask_ratio(self,ratio):
+        self.shuffle = PatchShuffle(ratio)
+        
     def forward(self, img, indexes=None):
         patches = self.patchify(img) 
         
@@ -166,6 +169,10 @@ class MAE_ViT(torch.nn.Module):
         self.encoder = MAE_Encoder(image_width, image_height, image_channels, patch_width, patch_height, emb_dim, encoder_layer, encoder_head, mask_ratio)
         self.decoder = MAE_Decoder(image_width, image_height, image_channels, patch_width, patch_height, emb_dim, decoder_layer, decoder_head)
 
+    def set_mask_ratio(self,ratio):
+    
+        self.encoder.set_mask_ratio(ratio) 
+        
     def forward(self, img):
         features, backward_indexes = self.encoder(img)
         predicted_img, mask = self.decoder(features,  backward_indexes)
