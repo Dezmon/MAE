@@ -72,12 +72,7 @@ if __name__ == '__main__':
         wandb.login()
         wandb.init(config=args,notes='model_size: '+ str(params)) # type: ignore
 
-
-    #import pytorch_ssim
-    from torchmetrics.image import StructuralSimilarityIndexMeasure
-    ssim_loss = StructuralSimilarityIndexMeasure(kernel_size=3).to('cuda')    
     
-    crossover=100000000
     step_count = 0
     optim.zero_grad()
     for e in range(args.total_epoch):
@@ -91,12 +86,7 @@ if __name__ == '__main__':
             img = img.to(device)
             predicted_img, mask = model(img)
 
-            if e < crossover:
-                #loss = torch.mean((torch.square(predicted_img - img)) * mask) / args.mask_ratio
-                #loss = torch.mean(torch.square((predicted_img * mask + img * (1 - mask)) - img)) 
-                loss = torch.mean(torch.square((predicted_img *mask + (1-mask) * img) - img))
-            else:
-                loss=ssim_loss(img,predicted_img * mask + img * (1 - mask))
+            loss = torch.mean(torch.square((predicted_img *mask + (1-mask) * img) - img))
   
             loss.backward() #gradient calculated per per batch
             optim.step()
@@ -163,12 +153,7 @@ if __name__ == '__main__':
                 for img, label in iter(val_dataloader):
                     img = img.to(device)
                     predicted_img, mask = model(img)
-                    if e < crossover:
-                        val_loss = torch.mean(torch.square((predicted_img *mask + (1-mask) * img) - img))
-                    else:
-                        val_loss=ssim_loss(img,predicted_img * mask + img * (1 - mask))
-
-                    
+                    val_loss = torch.mean(torch.square((predicted_img *mask + (1-mask) * img) - img))
                     val_losses.append(val_loss.item())            
                     
                 avg_val_loss = sum(val_losses) / len(val_losses)
@@ -183,6 +168,6 @@ if __name__ == '__main__':
                 
         ''' save model '''
         torch.save(model, args.model_path)
-    
+        wandb.save(args.model_path)
     if args.loging:
         wandb.finish()

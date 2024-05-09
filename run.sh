@@ -10,7 +10,6 @@ python3 mae_pretrain.py \
 --base_learning_rate 1.20e-3 \
 --weight_decay .05 \
 --encoder_layer 1 \
---decoder_layer 1 \
---batch_size 1
+--decoder_layer 1 
 
 pkill wandb
