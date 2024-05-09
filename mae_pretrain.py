@@ -12,9 +12,11 @@ from torchvision.transforms import Lambda, ToTensor, Compose, Normalize
 from einops import repeat, rearrange
 
 from tqdm import tqdm
-
+from utils import *
 from model import *
+from USUtils.USLoader import *
 from utils import setup_seed
+
 import wandb
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -38,36 +40,16 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     setup_seed(args.seed)
-    if args.loging:
-        wandb.login()
-        wandb.init(config=args) # type: ignore
 
     batch_size = args.batch_size
 
-    #train_dataset = torchvision.datasets.CIFAR10('data', train=True, download=True, transform=Compose([ToTensor(), Normalize(0.5, 0.5)]))
-    #val_dataset = torchvision.datasets.CIFAR10('data', train=False, download=True, transform=Compose([ToTensor(), Normalize(0.5, 0.5)]))
+        
+    train_dataset = USImages(args.data_path+'train/',noise_var=args.train_noise)
+    #train_dataset = USImages(args.data_path+'train/')
+    val_dataset = USImages(args.data_path+'validation/')
     
-    class Images(torch.utils.data.Dataset,):  # type: ignore
-        
-        def __init__(self, path: str, transform=None,noise_var=0):
-            super().__init__()
-            self.files = [file for file in glob.glob(path+'*.png')]
-            self.transform = transform
-            self.noise_var=noise_var
-
-        def __getitem__(self, index):
-            image=torchvision.io.read_image(self.files[index]).to(torch.float)/255.0
-            noise = torch.randn(image.size()) * self.noise_var
-            image=image+noise
-            if self.transform:
-                image = self.transform(image)
-            return  image, 'noLabel'
-
-        def __len__(self):
-            return len(self.files)
-        
-    train_dataset = Images(args.data_path+'train/',noise_var=args.train_noise,transform=Compose([ Normalize(0.5, 0.5)]))
-    val_dataset = Images(args.data_path+'validation/',transform=Compose([Normalize(0.5, 0.5)]))
+    #train_dataset = USImages(args.data_path+'train/',noise_var=args.train_noise)
+    #val_dataset = USImages(args.data_path+'validation/')
     
     dataloader = torch.utils.data.DataLoader(train_dataset, batch_size, shuffle=True, num_workers=3)  # type: ignore
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size, shuffle=True, num_workers=3)  # type: ignore
@@ -83,14 +65,19 @@ if __name__ == '__main__':
     lr_func = lambda epoch: min((epoch + 1) / (args.warmup_epoch + 1e-8), 0.5 * (math.cos(epoch / args.total_epoch * math.pi) + 1))
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optim, lr_lambda=lr_func, verbose=True)
 
-
+    model_parameters = filter(lambda p: p.requires_grad, model.parameters())
+    params = sum([np.prod(p.size()) for p in model_parameters])
+    
+    if args.loging:
+        wandb.login()
+        wandb.init(config=args,notes='model_size: '+ str(params)) # type: ignore
 
 
     #import pytorch_ssim
     from torchmetrics.image import StructuralSimilarityIndexMeasure
     ssim_loss = StructuralSimilarityIndexMeasure(kernel_size=3).to('cuda')    
     
-    crossover=10000
+    crossover=100000000
     step_count = 0
     optim.zero_grad()
     for e in range(args.total_epoch):
@@ -103,11 +90,13 @@ if __name__ == '__main__':
             step_count += 1
             img = img.to(device)
             predicted_img, mask = model(img)
+
             if e < crossover:
                 #loss = torch.mean((torch.square(predicted_img - img)) * mask) / args.mask_ratio
-                loss = torch.mean((torch.square(predicted_img * mask + img * (1 - mask) - img)) )
+                #loss = torch.mean(torch.square((predicted_img * mask + img * (1 - mask)) - img)) 
+                loss = torch.mean(torch.square((predicted_img *mask + (1-mask) * img) - img))
             else:
-                loss=1-ssim_loss(img,predicted_img * mask + img * (1 - mask))
+                loss=ssim_loss(img,predicted_img * mask + img * (1 - mask))
   
             loss.backward() #gradient calculated per per batch
             optim.step()
@@ -126,45 +115,65 @@ if __name__ == '__main__':
         model.eval()
 
         val_metrics={}
-        if e % 2 == 1:
+        if e % 2 == 0:
             with torch.no_grad():
-                if e % 10 == 1  or e < 20:
+                if e % 10 == 0  or e < 20:
                     ''' visualize the first 16 predicted images on val dataset'''
                     print('sent example')
                     model.set_mask_ratio(0.5)
                     val_img = torch.stack([val_dataset[i][0] for i in [1, 3]])
+                    tst_img = torch.stack([train_dataset[i][0] for i in [1]])
                     val_img = val_img.to(device)
+                    tst_img = tst_img.to(device)
                     predicted_val_img, mask = model(val_img)
-                    #predicted_val_img = predicted_val_img * mask + val_img * (1 - mask)
-                    #predicted_val_img = predicted_val_img * mask 
-                    img = torch.cat([predicted_val_img, val_img * (1 - mask), val_img ], dim=0)
+                    
+                    sd,mean=torch.std_mean(predicted_val_img)
+                    predicted_val_img=Normalize(mean,sd)(predicted_val_img)
+                    predicted_tst_img, tst_mask = model(tst_img)
+                    
+                    img = torch.cat([(predicted_val_img * (mask)) + (1-mask)*-2,
+                                    val_img * (1 - mask)+(mask*-2),
+                                    (predicted_val_img * (mask)) + (1-mask)*val_img ], dim=0)
                     img = rearrange(img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=1, v=3)
+                    
+                    org_img = torch.cat([val_img,
+                                    (predicted_val_img * (mask)) + (1-mask)*val_img ], dim=0)
+                    org_img = rearrange(org_img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=1, v=2)
+                    
+                    
+                    t_img = torch.cat([(predicted_tst_img * (tst_mask)) + (1-tst_mask)*-2,
+                                       tst_img * (1 - tst_mask)+(tst_mask*-2),
+                                       (predicted_tst_img * (tst_mask)) + (1-tst_mask)*tst_img ], dim=0)
+                    t_img = rearrange(t_img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=1, v=3)
+                    
                     if args.loging:
-                        wandb.log({"examples": [wandb.Image(img)]}) 
+                        img_sd,img_mean=torch.std_mean(val_img)
+                        sd,mean=torch.std_mean(predicted_val_img)
+                        wandb.log({"val examples": [wandb.Image(img)],
+                                   "training examples": [wandb.Image(t_img)],
+                                   "orginal vs predict": [wandb.Image(org_img)],
+                                   "predict_mean":mean,
+                                   "predict_sd":sd,
+                                   "img_mean":img_mean,
+                                   "img_sd":img_sd}) 
                 
-                '''log val loss'''
+                '''log the val loss'''
                 model.set_mask_ratio(args.mask_ratio)
                 val_losses = []      
-                SSIM_val_losses = []      
                 for img, label in iter(val_dataloader):
                     img = img.to(device)
                     predicted_img, mask = model(img)
-                    #val_loss = torch.mean((predicted_img - img) ** 2 * mask) / args.mask_ratio
-                        #val_loss = torch.mean((torch.square(predicted_img - img)) * mask) / args.mask_ratio
-                    val_loss = torch.mean((torch.square(predicted_img * mask + img * (1 - mask) - img)) )
-                    SSIM_val_loss=1-ssim_loss(img,predicted_img * mask + img * (1 - mask))
+                    if e < crossover:
+                        val_loss = torch.mean(torch.square((predicted_img *mask + (1-mask) * img) - img))
+                    else:
+                        val_loss=ssim_loss(img,predicted_img * mask + img * (1 - mask))
 
                     
-                    
-                    SSIM_val_losses.append(SSIM_val_loss.item())            
                     val_losses.append(val_loss.item())            
                     
-
                 avg_val_loss = sum(val_losses) / len(val_losses)
-                SSIM_avg_val_loss = sum(SSIM_val_losses) / len(SSIM_val_losses)
                
                 val_metrics={
-                    "SSIM Val Loss": SSIM_avg_val_loss,
                     "Val Loss": avg_val_loss,
                     "Loss Delta": avg_val_loss-avg_loss
                 }
