@@ -13,8 +13,11 @@ class USImages(torch.utils.data.Dataset,):  # type: ignore
         self.noise_var=noise_var
 
     def __getitem__(self, index):
-        image=torchvision.io.read_image(self.files[index]).to(torch.float)
-        sd,mean=torch.std_mean(image)
+        image=torchvision.io.read_image(self.files[index]).to(torch.float)/256
+        
+        #sd,mean=torch.std_mean(image)
+        mean=0.2809972185077089
+        sd=0.2596474099490378
         image=Normalize(mean,sd)(image)
         noise = torch.randn(image.size()) * self.noise_var
         image=image+noise

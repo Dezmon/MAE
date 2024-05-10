@@ -87,7 +87,7 @@ if __name__ == '__main__':
             predicted_img, mask = model(img)
 
             loss = torch.mean(torch.square((predicted_img *mask + (1-mask) * img) - img))
-  
+        
             loss.backward() #gradient calculated per per batch
             optim.step()
             optim.zero_grad()
@@ -107,7 +107,7 @@ if __name__ == '__main__':
         val_metrics={}
         if e % 2 == 0:
             with torch.no_grad():
-                if e % 10 == 0  or e < 20:
+                if e % 20 == 0  or e < 20:
                     ''' visualize the first 16 predicted images on val dataset'''
                     print('sent example')
                     model.set_mask_ratio(0.5)
@@ -117,8 +117,6 @@ if __name__ == '__main__':
                     tst_img = tst_img.to(device)
                     predicted_val_img, mask = model(val_img)
                     
-                    sd,mean=torch.std_mean(predicted_val_img)
-                    predicted_val_img=Normalize(mean,sd)(predicted_val_img)
                     predicted_tst_img, tst_mask = model(tst_img)
                     
                     img = torch.cat([(predicted_val_img * (mask)) + (1-mask)*-2,
@@ -135,11 +133,16 @@ if __name__ == '__main__':
                                        tst_img * (1 - tst_mask)+(tst_mask*-2),
                                        (predicted_tst_img * (tst_mask)) + (1-tst_mask)*tst_img ], dim=0)
                     t_img = rearrange(t_img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=1, v=3)
+                   
+                    err_img = torch.cat([torch.square((predicted_val_img *mask + (1-mask) * val_img) - val_img)
+                                    ], dim=0)
+                    #err_img = rearrange(org_img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=1, v=1)
                     
                     if args.loging:
                         img_sd,img_mean=torch.std_mean(val_img)
                         sd,mean=torch.std_mean(predicted_val_img)
                         wandb.log({"val examples": [wandb.Image(img)],
+                                   "val Error ": [wandb.Image(err_img)],
                                    "training examples": [wandb.Image(t_img)],
                                    "orginal vs predict": [wandb.Image(org_img)],
                                    "predict_mean":mean,

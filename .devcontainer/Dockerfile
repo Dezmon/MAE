@@ -18,6 +18,7 @@ RUN apt update
 RUN apt install -y git libsndfile1-dev tesseract-ocr espeak-ng python3 python3-pip ffmpeg git-lfs
 RUN git lfs install
 RUN python3 -m pip install --no-cache-dir --upgrade pip
+RUN python3 -m pip install --no-cache-dir -U torch==2.2.0 torchvision tensorboard wandb einops timm==0.4.12 tqdm
 
 #ARG REF=main
 #RUN git clone https://github.com/huggingface/transformers && cd transformers && git checkout $REF
