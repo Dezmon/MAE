@@ -51,11 +51,15 @@ if __name__ == '__main__':
     #train_dataset = USImages(args.data_path+'train/',noise_var=args.train_noise)
     #val_dataset = USImages(args.data_path+'validation/')
     
-    dataloader = torch.utils.data.DataLoader(train_dataset, batch_size, shuffle=True, num_workers=3)  # type: ignore
-    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size, shuffle=True, num_workers=3)  # type: ignore
     
     writer = SummaryWriter(os.path.join('logs', 'US', 'mae-pretrain'))
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    if not torch.cuda.is_available():
+        print("not GPU") 
+        exit()
+    
+    dataloader = torch.utils.data.DataLoader(train_dataset, batch_size, shuffle=True, num_workers=6)  # type: ignore
+    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size, shuffle=True, num_workers=6)  # type: ignore
 
     model = MAE_ViT(image_width=158,image_height=56,patch_height=1,patch_width=158,
                     emb_dim=args.embeding_dim,mask_ratio=args.mask_ratio,
