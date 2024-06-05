@@ -20,7 +20,7 @@ diffusion = GaussianDiffusion(
 )
 trainer = Trainer(
     diffusion,
-    'docker-data/smalls/',
+    'docker-data/fixedsize-torch/train/',
     save_and_sample_every =1000,
     train_batch_size = 16,
     train_lr = 8e-5,

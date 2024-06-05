@@ -4,4 +4,6 @@ docker-data/
 logs/
 batchlogs/
 wandb/
+results/
+smalls-results/
 *.pt
