@@ -6,4 +6,5 @@ batchlogs/
 wandb/
 results/
 smalls-results/
+clusterdata/
 *.pt
