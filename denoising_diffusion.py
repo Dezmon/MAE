@@ -1,9 +1,9 @@
 import os,sys
-sys.path.append('denoising_diffusion_pytorch')
-from denoising_diffusion_pytorch import Unet, GaussianDiffusion, Trainer
+sys.path.append('denoising-diffusion-pytorch')
+from denoising_diffusion_pytorch import Unet, GaussianDiffusion, Trainer # type: ignore
 from USUtils.USLoader import *
 
-milestone=0
+milestone=241
 print('got in')
 model = Unet(
     dim = 64,
