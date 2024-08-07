@@ -164,9 +164,36 @@ if __name__ == '__main__':
                     val_losses.append(val_loss.item())            
                     
                 avg_val_loss = sum(val_losses) / len(val_losses)
+              
+              
+                blur_losses = []      
+                for img, label in iter(val_dataloader):
+                    img = img.to(device)
+                    
+                    print(img.size())
+                    weights = torch.tensor( 
+                        [[[[1, 1, 1], 
+                        [0, 0, 0],  
+                        [1, 1, 1]]]], dtype=torch.float32)/6 
+                    weights.to(device)
+                  
+                    conv = torch.nn.Conv2d(1, 1, 3,stride=1, padding='same',bias=False, padding_mode='reflect')
+                    with torch.no_grad():
+                        conv.weight = torch.nn.Parameter(weights)
+                    conv.to(device)
+       
+                    predicted_img = conv(img)
+                    
+                   
+                    blur_loss = torch.mean(torch.square(predicted_img - img))
+                    blur_losses.append(blur_loss.item())            
+                    
+                avg_blur_loss = sum(blur_losses) / len(blur_losses)
+              
                
                 val_metrics={
                     "Val Loss": avg_val_loss,
+                    "Blur Loss": avg_blur_loss,
                     "Loss Delta": avg_val_loss-avg_loss
                 }
         
@@ -175,6 +202,6 @@ if __name__ == '__main__':
                 
         ''' save model '''
         torch.save(model, args.model_path)
-        wandb.save(args.model_path)
     if args.loging:
+        wandb.save(args.model_path)
         wandb.finish()

@@ -12,7 +12,7 @@ module load cudnn/8.9.2.26_cuda11-fasrc01
 
 conda run -n MAE \
 python3 mae_pretrain.py \
---data_path docker-data/fixedsize-torch/ \
+--data_path /n/holyscratch01/howe_lab_seas/dperrin/MAE-data/docker-data/fixedsize-torch/ \
 --mask_ratio .75 \
 --embeding_dim 96 \
 --loging True \
