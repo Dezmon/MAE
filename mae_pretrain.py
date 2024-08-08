@@ -3,19 +3,19 @@ import os
 import argparse
 import math
 import torch  # type: ignore
-import torch.cuda
-import torchvision
-from torchvision.io import read_image
+import torch.cuda # type: ignore
+import torchvision # type: ignore
+from torchvision.io import read_image # type: ignore
 import glob
-from torch.utils.tensorboard.writer import SummaryWriter  
-from torchvision.transforms import Lambda, ToTensor, Compose, Normalize
-from einops import repeat, rearrange
+from torch.utils.tensorboard.writer import SummaryWriter   # type: ignore
+from torchvision.transforms import Lambda, ToTensor, Compose, Normalize # type: ignore
+from einops import repeat, rearrange # type: ignore
+from utils import setup_seed 
 
-from tqdm import tqdm
+from tqdm import tqdm # type: ignore
 from utils import *
 from model import *
 from USUtils.USLoader import *
-from utils import setup_seed
 
 import wandb
 if __name__ == '__main__':
@@ -73,7 +73,7 @@ if __name__ == '__main__':
     params = sum([np.prod(p.size()) for p in model_parameters])
     
     if args.loging:
-        wandb.login()
+        wandb.login() # type: ignore
         wandb.init(config=args,notes='model_size: '+ str(params)) # type: ignore
 
     
@@ -110,6 +110,13 @@ if __name__ == '__main__':
 
         val_metrics={}
         if e % 2 == 0:
+            
+            weights = torch.tensor( 
+                [[[[0, 1, 0], 
+                [0, 0, 0],  
+                [0, 1, 0]]]], dtype=torch.float32)/2 
+            weights.to(device)
+            
             with torch.no_grad():
                 if e % 20 == 0  or e < 20:
                     ''' visualize the first 16 predicted images on val dataset'''
@@ -123,15 +130,26 @@ if __name__ == '__main__':
                     
                     predicted_tst_img, tst_mask = model(tst_img)
                     
+                  
+                    conv = torch.nn.Conv2d(1, 1, 3,stride=1, padding='same',bias=False, padding_mode='reflect')
+                    with torch.no_grad():
+                        conv.weight = torch.nn.Parameter(weights)
+                    conv.to(device)
+       
+                    blur = conv(val_img)
+                    
                     img = torch.cat([(predicted_val_img * (mask)) + (1-mask)*-2,
                                     val_img * (1 - mask)+(mask*-2),
                                     (predicted_val_img * (mask)) + (1-mask)*val_img ], dim=0)
                     img = rearrange(img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=1, v=3)
                     
                     org_img = torch.cat([val_img,
-                                    (predicted_val_img * (mask)) + (1-mask)*val_img ], dim=0)
-                    org_img = rearrange(org_img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=1, v=2)
+                                    predicted_val_img,blur], dim=0)
+                    #org_img = torch.cat([val_img,
+                    #                (predicted_val_img * (mask)) + (1-mask)*val_img ,blur], dim=0)
+                    org_img = rearrange(org_img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=1, v=3)
                     
+
                     
                     t_img = torch.cat([(predicted_tst_img * (tst_mask)) + (1-tst_mask)*-2,
                                        tst_img * (1 - tst_mask)+(tst_mask*-2),
@@ -145,10 +163,10 @@ if __name__ == '__main__':
                     if args.loging:
                         img_sd,img_mean=torch.std_mean(val_img)
                         sd,mean=torch.std_mean(predicted_val_img)
-                        wandb.log({"val examples": [wandb.Image(img)],
-                                   "val Error ": [wandb.Image(err_img)],
-                                   "training examples": [wandb.Image(t_img)],
-                                   "orginal vs predict": [wandb.Image(org_img)],
+                        wandb.log({"val examples": [wandb.Image(img)], # type: ignore
+                                   "val Error ": [wandb.Image(err_img)], # type: ignore
+                                   "training examples": [wandb.Image(t_img)], # type: ignore
+                                   "orginal vs predict": [wandb.Image(org_img)], # type: ignore
                                    "predict_mean":mean,
                                    "predict_sd":sd,
                                    "img_mean":img_mean,
@@ -170,12 +188,7 @@ if __name__ == '__main__':
                 for img, label in iter(val_dataloader):
                     img = img.to(device)
                     
-                    print(img.size())
-                    weights = torch.tensor( 
-                        [[[[1, 1, 1], 
-                        [0, 0, 0],  
-                        [1, 1, 1]]]], dtype=torch.float32)/6 
-                    weights.to(device)
+                    #print(img.size())
                   
                     conv = torch.nn.Conv2d(1, 1, 3,stride=1, padding='same',bias=False, padding_mode='reflect')
                     with torch.no_grad():
@@ -198,10 +211,10 @@ if __name__ == '__main__':
                 }
         
         if args.loging:
-            wandb.log({**metrics,**val_metrics})  
+            wandb.log({**metrics,**val_metrics})   # type: ignore
                 
         ''' save model '''
         torch.save(model, args.model_path)
     if args.loging:
-        wandb.save(args.model_path)
-        wandb.finish()
+        wandb.save(args.model_path) # type: ignore
+        wandb.finish() # type: ignore
