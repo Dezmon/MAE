@@ -1,13 +1,13 @@
 import re
-import torch
-import timm
-import numpy as np
+import torch # type: ignore
+import numpy as np # type: ignore
 
-from einops import repeat, rearrange
-from einops.layers.torch import Rearrange
+from einops import repeat, rearrange # type: ignore
+from einops.layers.torch import Rearrange # type: ignore
 
-from timm.models.layers import trunc_normal_
-from timm.models.vision_transformer import Block
+from timm.models.layers import trunc_normal_ # type: ignore
+from timm.models.vision_transformer import Block # type: ignore
+
 
 def random_indexes(size : int):
     forward_indexes = np.arange(size)
@@ -32,10 +32,10 @@ class PatchShuffle(torch.nn.Module):
     def forward(self, patches : torch.Tensor,indexes=None):
         T, B, C = patches.shape #what are T, B C (total h*w batch/instances chanels?)
         remain_T = int(T * (1 - self.ratio))
-        if np.random.random() < 0.5: #randomly add a few extra scanelines
-            remain_T=remain_T + 5
-        else:
-            remain_T=remain_T
+        #if np.random.random() < 0.5: #randomly add a few extra scanelines
+        #    remain_T=remain_T + 5
+        #else:
+        #    remain_T=remain_T
         indexes = [random_indexes(T) for _ in range(B)] #indexes are just linierindexes into the flaatened h*w image
         
         forward_indexes = torch.as_tensor(np.stack([i[0] for i in indexes], axis=-1), dtype=torch.long).to(patches.device)

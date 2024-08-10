@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -c 1 # Number of cores requested
-#SBATCH -t 340 # Runtime in minutes
+#SBATCH -t 120 # Runtime in minutes
 #SBATCH -p gpu_test # Partition to submit to
 #SBATCH --gpus 1
 #SBATCH --mem=16000 # Memory per node in MB (see also --mem-per-cpu)
@@ -14,12 +14,12 @@ conda run -n MAE \
 python3 mae_pretrain.py \
 --data_path /n/holyscratch01/howe_lab_seas/dperrin/MAE-data/docker-data/fixedsize-torch/ \
 --mask_ratio .75 \
---embeding_dim 96 \
+--embeding_dim 48 \
 --loging True \
---total_epoch 100 \
+--total_epoch 60 \
 --warmup_epoch 20 \
---train_noise 0.0 \
+--train_noise 0.2 \
 --base_learning_rate 1.20e-2 \
---weight_decay .0005 \
---encoder_layer 1 \
---decoder_layer 1 
+--weight_decay .005 \
+--encoder_layer 3 \
+--decoder_layer 3

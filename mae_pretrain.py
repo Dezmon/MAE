@@ -79,9 +79,11 @@ if __name__ == '__main__':
     
     step_count = 0
     optim.zero_grad()
+    only_once=0
+
     for e in range(args.total_epoch):
         model.train()
-        model.set_mask_ratio(args.mask_ratio)
+        #model.set_mask_ratio(args.mask_ratio)
         
         losses = []
 #       for img, label in tqdm(iter(dataloader)):
@@ -91,6 +93,7 @@ if __name__ == '__main__':
             predicted_img, mask = model(img)
 
             loss = torch.mean(torch.square((predicted_img *mask + (1-mask) * img) - img))
+            #loss = torch.mean(torch.square((predicted_img *(mask) - (mask) * img)))
         
             loss.backward() #gradient calculated per per batch
             optim.step()
@@ -109,7 +112,7 @@ if __name__ == '__main__':
         model.eval()
 
         val_metrics={}
-        if e % 2 == 0:
+        if e % 5 == 0:
             
             weights = torch.tensor( 
                 [[[[0, 1, 0], 
@@ -118,103 +121,110 @@ if __name__ == '__main__':
             weights.to(device)
             
             with torch.no_grad():
-                if e % 20 == 0  or e < 20:
-                    ''' visualize the first 16 predicted images on val dataset'''
-                    print('sent example')
-                    model.set_mask_ratio(0.5)
-                    val_img = torch.stack([val_dataset[i][0] for i in [1, 3]])
-                    tst_img = torch.stack([train_dataset[i][0] for i in [1]])
-                    val_img = val_img.to(device)
-                    tst_img = tst_img.to(device)
-                    predicted_val_img, mask = model(val_img)
-                    
-                    predicted_tst_img, tst_mask = model(tst_img)
-                    
+                
+                if only_once == 0:
+                    only_once=1
+                    blur_losses = []      
+                    for img, label in iter(val_dataloader):
+                        img = img.to(device)
                   
-                    conv = torch.nn.Conv2d(1, 1, 3,stride=1, padding='same',bias=False, padding_mode='reflect')
-                    with torch.no_grad():
+                        conv = torch.nn.Conv2d(1, 1, 3,stride=1, padding='same',bias=False, padding_mode='reflect')
                         conv.weight = torch.nn.Parameter(weights)
-                    conv.to(device)
+                        conv.to(device)
        
-                    blur = conv(val_img)
-                    
-                    img = torch.cat([(predicted_val_img * (mask)) + (1-mask)*-2,
-                                    val_img * (1 - mask)+(mask*-2),
-                                    (predicted_val_img * (mask)) + (1-mask)*val_img ], dim=0)
-                    img = rearrange(img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=1, v=3)
-                    
-                    org_img = torch.cat([val_img,
-                                    predicted_val_img,blur], dim=0)
-                    #org_img = torch.cat([val_img,
-                    #                (predicted_val_img * (mask)) + (1-mask)*val_img ,blur], dim=0)
-                    org_img = rearrange(org_img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=1, v=3)
-                    
-
-                    
-                    t_img = torch.cat([(predicted_tst_img * (tst_mask)) + (1-tst_mask)*-2,
-                                       tst_img * (1 - tst_mask)+(tst_mask*-2),
-                                       (predicted_tst_img * (tst_mask)) + (1-tst_mask)*tst_img ], dim=0)
-                    t_img = rearrange(t_img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=1, v=3)
+                        predicted_img = conv(img)
                    
-                    err_img = torch.cat([torch.square((predicted_val_img *mask + (1-mask) * val_img) - val_img)
-                                    ], dim=0)
-                    #err_img = rearrange(org_img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=1, v=1)
+                        blur_loss = torch.mean(torch.square(predicted_img - img))
+                        blur_losses.append(blur_loss.item())            
                     
-                    if args.loging:
-                        img_sd,img_mean=torch.std_mean(val_img)
-                        sd,mean=torch.std_mean(predicted_val_img)
-                        wandb.log({"val examples": [wandb.Image(img)], # type: ignore
-                                   "val Error ": [wandb.Image(err_img)], # type: ignore
-                                   "training examples": [wandb.Image(t_img)], # type: ignore
-                                   "orginal vs predict": [wandb.Image(org_img)], # type: ignore
-                                   "predict_mean":mean,
-                                   "predict_sd":sd,
-                                   "img_mean":img_mean,
-                                   "img_sd":img_sd}) 
+                    avg_blur_loss = sum(blur_losses) / len(blur_losses)
+                
+                
+                ''' visualize the three predicted images on val dataset'''
+                #print('sent example')
+                #model.set_mask_ratio(0.5)
+                val_img = torch.stack([val_dataset[i][0] for i in [1, 3]])
+                tst_img = torch.stack([train_dataset[i][0] for i in [1]])
+                val_img = val_img.to(device)
+                tst_img = tst_img.to(device)
+                predicted_val_img, mask = model(val_img)
+                
+                predicted_tst_img, tst_mask = model(tst_img)
+                
+                
+                conv = torch.nn.Conv2d(1, 1, 3,stride=1, padding='same',bias=False, padding_mode='reflect')
+                with torch.no_grad():
+                    conv.weight = torch.nn.Parameter(weights)
+                conv.to(device)
+    
+                blur = conv(val_img)
+                
+                img = torch.cat([(predicted_val_img * (mask)) + (1-mask)*-2,
+                                val_img * (1 - mask)+(mask*-2),
+                                (predicted_val_img * (mask)) + (1-mask)*val_img ], dim=0)
+                img = rearrange(img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=1, v=3)
+                
+                org_img = torch.cat([val_img*(mask)+((1-mask)*-2),
+                                predicted_val_img * (mask)+((1-mask)*-2),
+                                blur * (mask)+((1-mask)*-2)], dim=0)
+                #org_img = torch.cat([val_img,
+                #                (predicted_val_img * (mask)) + (1-mask)*val_img ,blur], dim=0)
+                org_img = rearrange(org_img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=1, v=3)
+                
+
+                
+                t_img = torch.cat([
+                                    tst_img * (1 - tst_mask)+(tst_mask*-2),
+                                    (predicted_tst_img * (tst_mask)) + (1-tst_mask)*-2,
+                                    (tst_mask)*tst_img + (1-tst_mask)*-2], dim=0)
+                t_img = rearrange(t_img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=1, v=3)
+                
+                err_img = torch.cat([torch.square(predicted_val_img *mask - val_img*mask)
+                                ], dim=0)
+                #err_img = rearrange(org_img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=1, v=1)
+                
+                if args.loging:
+                    #img_sd,img_mean=torch.std_mean(val_img)
+                    #sd,mean=torch.std_mean(predicted_val_img)
+                    wandb.log({#"val examples": [wandb.Image(img)], # type: ignore
+                                #"val Error ": [wandb.Image(err_img)], # type: ignore
+                                "training examples": [wandb.Image(t_img)], # type: ignore
+                                "orginal, predict, blur": [wandb.Image(org_img)], # type: ignore
+                                #"predict_mean":mean,
+                                #"predict_sd":sd,
+                                #"img_mean":img_mean,
+                                #"img_sd":img_sd
+                                }) 
                 
                 '''log the val loss'''
-                model.set_mask_ratio(args.mask_ratio)
+                
                 val_losses = []      
                 for img, label in iter(val_dataloader):
                     img = img.to(device)
                     predicted_img, mask = model(img)
                     val_loss = torch.mean(torch.square((predicted_img *mask + (1-mask) * img) - img))
+                    #val_loss = torch.mean(torch.square((predicted_img *(mask) - (mask) * img)))
                     val_losses.append(val_loss.item())            
                     
                 avg_val_loss = sum(val_losses) / len(val_losses)
               
               
-                blur_losses = []      
-                for img, label in iter(val_dataloader):
-                    img = img.to(device)
-                    
-                    #print(img.size())
-                  
-                    conv = torch.nn.Conv2d(1, 1, 3,stride=1, padding='same',bias=False, padding_mode='reflect')
-                    with torch.no_grad():
-                        conv.weight = torch.nn.Parameter(weights)
-                    conv.to(device)
-       
-                    predicted_img = conv(img)
-                    
-                   
-                    blur_loss = torch.mean(torch.square(predicted_img - img))
-                    blur_losses.append(blur_loss.item())            
-                    
-                avg_blur_loss = sum(blur_losses) / len(blur_losses)
               
                
                 val_metrics={
                     "Val Loss": avg_val_loss,
                     "Blur Loss": avg_blur_loss,
-                    "Loss Delta": avg_val_loss-avg_loss
+                    "Loss Delta": abs(avg_val_loss-avg_loss)
                 }
         
+            #if args.loging:
+            #    wandb.log({**metrics,**val_metrics})   # type: ignore
+                
+            ''' save model '''
+            torch.save(model, args.model_path)
         if args.loging:
             wandb.log({**metrics,**val_metrics})   # type: ignore
-                
-        ''' save model '''
-        torch.save(model, args.model_path)
-    if args.loging:
-        wandb.save(args.model_path) # type: ignore
-        wandb.finish() # type: ignore
+            wandb.save(args.model_path) # type: ignore
+
+if args.loging:
+    wandb.finish() # type: ignore
