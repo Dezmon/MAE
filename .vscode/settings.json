@@ -1,4 +1,7 @@
 {
     "python.analysis.autoImportCompletions": true,
-    "python.analysis.typeCheckingMode": "basic"
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.extraPaths": [
+        "./denoising-diffusion-pytorch/denoising_diffusion_py"
+    ]
 }
