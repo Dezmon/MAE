@@ -5,8 +5,10 @@ from denoising_diffusion_pytorch import Unet, GaussianDiffusion, Trainer # type:
 from USUtils.USLoader import *
 from accelerate import Accelerator # type: ignore
 from pathlib import Path
-from torchvision import  utils # type: ignore
-from tqdm.auto import tqdm
+from torchvision import transforms as T,  utils # type: ignore
+from PIL import Image # type: ignore
+from tqdm.auto import tqdm # type: ignore
+from einops import rearrange, reduce, repeat # type: ignore
 
 def num_to_groups(num, divisor):
     groups = num // divisor
@@ -37,6 +39,9 @@ diffusion = GaussianDiffusion(
 )
 
 accelerator = Accelerator()
+#better?
+#device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 
 print('starting load')
 data = torch.load(str('results' '/' f'model-{milestone}.pt'), map_location=accelerator.device)
@@ -57,6 +62,7 @@ print('ending load')
 num_samples = 2
 batch=1
 shape=(1,3,56,160)
+image_size=(56,160)
 #with accelerator.autocast():  #does this do anything for inference speed or just learing? 
 #    with torch.inference_mode():
 #        all_images_list = [diffusion.ddim_sample(shape) for _ in range(num_samples)]
@@ -65,23 +71,33 @@ eta=0.
 total_timesteps=1000
 sampling_timesteps=250
 
+test_image_path='/n/holyscratch01/howe_lab_seas/dperrin/MAE-data/docker-data/fixedsize-torch/validation/91d22630-fdb1-11ee-a39e-0242ac110004.png'
+test_img = Image.open(test_image_path)
+transform = T.Compose([
+            T.Resize(image_size),
+            T.ToTensor()
+        ])
+
+t=transform(test_img)
+in_image=rearrange(repeat(t, '1 h w -> c h w', c=3),'c h w -> 1 c h w')
+
+
+exit()
 with torch.inference_mode():
     with accelerator.autocast():
-        shape=(1,3,56,160)
         times = torch.linspace(-1, total_timesteps - 1, steps = sampling_timesteps + 1)   # type: ignore # [-1, 0, 1, 2, ..., T-1] when sampling_timesteps == total_timesteps
         times = list(reversed(times.int().tolist()))
         time_pairs = list(zip(times[:-1], times[1:])) # [(T-1, T-2), (T-2, T-3), ..., (1, 0), (0, -1)]
 
         img = torch.randn(shape, device = accelerator.device)
-        
+        print('shape', img.shape)
         imgs = [img]
       
         x_start = None
 
         for time, time_next in tqdm(time_pairs, desc = 'sampling loop time step'):
             time_cond = torch.full((batch,), time, device = accelerator.device, dtype = torch.long)
-            self_cond = x_start if diffusion.self_condition else None
-            #self_cond = None
+            self_cond = None
             pred_noise, x_start, *_ = diffusion.model_predictions(img, time_cond, self_cond, clip_x_start = True, \
                                                                 rederive_pred_noise = True)
             
@@ -98,6 +114,7 @@ with torch.inference_mode():
 
             noise = torch.randn_like(img)
 
+#add in_image*apha.sqrt() + c? 
             img = x_start * alpha_next.sqrt() + \
                     c * pred_noise + \
                     sigma * noise
