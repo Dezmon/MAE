@@ -43,24 +43,17 @@ diffusion = GaussianDiffusion(
     sampling_timesteps = 2    # number of sampling timesteps (using ddim for faster inference [see citation for ddim paper])
 )
 
-accelerator = Accelerator()
+#accelerator = Accelerator()
 #better?
-#device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 print('starting load')
-data = torch.load(str('results' '/' f'model-{milestone}.pt'), map_location=accelerator.device)
+data = torch.load(str('results' '/' f'model-{milestone}.pt'), map_location=device)
 
-#model = self.accelerator.unwrap_model(self.model)
-diffusion.to(accelerator.device)
+diffusion.to(device)
 diffusion.load_state_dict(data['model'])
- 
- 
 diffusion.step = data['step']
-
-if 'version' in data:
-    print(f"loading from version {data['version']}")
-
 
 print('ending load')
 
@@ -68,9 +61,6 @@ num_samples = 2
 batch=1
 shape=(1,3,56,160)
 image_size=(56,160)
-#with accelerator.autocast():  #does this do anything for inference speed or just learing? 
-#    with torch.inference_mode():
-#        all_images_list = [diffusion.ddim_sample(shape) for _ in range(num_samples)]
 
 eta=0.
 total_timesteps=1000
@@ -92,41 +82,32 @@ with torch.inference_mode():
         times = list(reversed(times.int().tolist()))
         time_pairs = list(zip(times[:-1], times[1:])) # [(T-1, T-2), (T-2, T-3), ..., (1, 0), (0, -1)]
 
-        img = torch.randn(shape, device = accelerator.device)
+        img = torch.randn(shape, device = device)
         #print('shape', img.shape)
         imgs = [img]
       
         x_start = None
 
         for time, time_next in tqdm(time_pairs, desc = 'sampling loop time step'):
-            time_cond = torch.full((batch,), time, device = accelerator.device, dtype = torch.long)
+            time_cond = torch.full((batch,), time, device = device, dtype = torch.long)
             self_cond = None
 
             model_output = diffusion.model(img, time_cond, None)
             v = model_output
-            #predict_start_from_v(img, time_cond, v)
-            #diffusion.sqrt_alphas_cumprod[time_cond]*img-diffusion.sqrt_one_minus_alphas_cumprod[time_cond]*v
-            alpha_t=diffusion.alphas_cumprod[time]
-            x_start=x_t=alpha_t.sqrt()*img-(1-alpha_t).sqrt()*v
-            #x_start = extract(diffusion.sqrt_alphas_cumprod, time_cond, img.shape) * img - \
-            #    extract(diffusion.sqrt_one_minus_alphas_cumprod, time_cond, img.shape) * v
-            #predict_noise_from_start(img, time_cond, x_start)
             
-            #  register_buffer('sqrt_recip_alphas_cumprod', torch.sqrt(1. / alphas_cumprod))
-            #register_buffer('sqrt_recipm1_alphas_cumprod', torch.sqrt(1. / alphas_cumprod - 1))
-            alpha_r_t= 1. / diffusion.alphas_cumprod[time]
-            pred_noise = (alpha_r_t.sqrt()*img-x_start) / (alpha_r_t -1).sqrt()
-            #pred_noise = (extract(diffusion.sqrt_recip_alphas_cumprod, time_cond, img.shape) * img - x_start) / \
-            #    extract(diffusion.sqrt_recipm1_alphas_cumprod, time_cond, img.shape)
+            alpha = diffusion.alphas_cumprod[time]
             
-          
+            x_start=x_t=alpha.sqrt()*img-(1-alpha).sqrt()*v
+            
+            alpha_r= 1. / diffusion.alphas_cumprod[time]
+            pred_noise = (alpha_r.sqrt()*img-x_start) / (alpha_r -1).sqrt()
+
     
             if time_next < 0:
                 img = x_start
                 imgs.append(img)
                 continue
 
-            alpha = diffusion.alphas_cumprod[time]
             
             alpha_next = diffusion.alphas_cumprod[time_next]
             
