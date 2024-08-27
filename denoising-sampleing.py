@@ -1,3 +1,4 @@
+import imghdr
 import os,sys
 import math
 sys.path.append('denoising-diffusion-pytorch')
@@ -21,6 +22,10 @@ def num_to_groups(num, divisor):
 def exists(x):
     return x is not None
 
+def extract(a, t, x_shape):
+    b, *_ = t.shape
+    out = a.gather(-1, t)
+    return out.reshape(b, *((1,) * (len(x_shape) - 1)))
 
 milestone=86
 print('got in')
@@ -35,7 +40,7 @@ diffusion = GaussianDiffusion(
     #image_size = (158,56),
     image_size = (56,160),
     timesteps = 1000,           # number of steps
-    sampling_timesteps = 250    # number of sampling timesteps (using ddim for faster inference [see citation for ddim paper])
+    sampling_timesteps = 2    # number of sampling timesteps (using ddim for faster inference [see citation for ddim paper])
 )
 
 accelerator = Accelerator()
@@ -81,16 +86,14 @@ transform = T.Compose([
 t=transform(test_img)
 in_image=rearrange(repeat(t, '1 h w -> c h w', c=3),'c h w -> 1 c h w')
 
-
-exit()
 with torch.inference_mode():
-    with accelerator.autocast():
+    
         times = torch.linspace(-1, total_timesteps - 1, steps = sampling_timesteps + 1)   # type: ignore # [-1, 0, 1, 2, ..., T-1] when sampling_timesteps == total_timesteps
         times = list(reversed(times.int().tolist()))
         time_pairs = list(zip(times[:-1], times[1:])) # [(T-1, T-2), (T-2, T-3), ..., (1, 0), (0, -1)]
 
         img = torch.randn(shape, device = accelerator.device)
-        print('shape', img.shape)
+        #print('shape', img.shape)
         imgs = [img]
       
         x_start = None
@@ -98,23 +101,41 @@ with torch.inference_mode():
         for time, time_next in tqdm(time_pairs, desc = 'sampling loop time step'):
             time_cond = torch.full((batch,), time, device = accelerator.device, dtype = torch.long)
             self_cond = None
-            pred_noise, x_start, *_ = diffusion.model_predictions(img, time_cond, self_cond, clip_x_start = True, \
-                                                                rederive_pred_noise = True)
+
+            model_output = diffusion.model(img, time_cond, None)
+            v = model_output
+            #predict_start_from_v(img, time_cond, v)
+            #diffusion.sqrt_alphas_cumprod[time_cond]*img-diffusion.sqrt_one_minus_alphas_cumprod[time_cond]*v
+            alpha_t=diffusion.alphas_cumprod[time]
+            x_start=x_t=alpha_t.sqrt()*img-(1-alpha_t).sqrt()*v
+            #x_start = extract(diffusion.sqrt_alphas_cumprod, time_cond, img.shape) * img - \
+            #    extract(diffusion.sqrt_one_minus_alphas_cumprod, time_cond, img.shape) * v
+            #predict_noise_from_start(img, time_cond, x_start)
             
+            #  register_buffer('sqrt_recip_alphas_cumprod', torch.sqrt(1. / alphas_cumprod))
+            #register_buffer('sqrt_recipm1_alphas_cumprod', torch.sqrt(1. / alphas_cumprod - 1))
+            alpha_r_t= 1. / diffusion.alphas_cumprod[time]
+            pred_noise = (alpha_r_t.sqrt()*img-x_start) / (alpha_r_t -1).sqrt()
+            #pred_noise = (extract(diffusion.sqrt_recip_alphas_cumprod, time_cond, img.shape) * img - x_start) / \
+            #    extract(diffusion.sqrt_recipm1_alphas_cumprod, time_cond, img.shape)
+            
+          
+    
             if time_next < 0:
                 img = x_start
                 imgs.append(img)
                 continue
 
             alpha = diffusion.alphas_cumprod[time]
+            
             alpha_next = diffusion.alphas_cumprod[time_next]
-
+            
             sigma = eta * ((1 - alpha / alpha_next) * (1 - alpha_next) / (1 - alpha)).sqrt()
             c = (1 - alpha_next - sigma ** 2).sqrt()
 
             noise = torch.randn_like(img)
 
-#add in_image*apha.sqrt() + c? 
+#add in_image*apha.sqrt() + c?  
             img = x_start * alpha_next.sqrt() + \
                     c * pred_noise + \
                     sigma * noise
