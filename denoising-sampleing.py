@@ -13,20 +13,22 @@ from tqdm.auto import tqdm # type: ignore
 from einops import rearrange, reduce, repeat # type: ignore
 
 
-milestone=86
+#milestone=86
+milestone=0
+
 print('got in')
 model = Unet(
     dim = 64,
     dim_mults = (1, 2, 4,8),
     flash_attn = False
 )
-
 diffusion = GaussianDiffusion(
     model,
     image_size = (56,160),
     timesteps = 1000,           # number of steps
     sampling_timesteps = 2    # number of sampling timesteps (using ddim for faster inference [see citation for ddim paper])
 )
+
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -41,16 +43,19 @@ diffusion.step = data['step']
 
 print('ending load')
 
-num_samples = 4
+num_samples = 8
 batch=1
 shape=(1,3,56,160)
 image_size=(56,160)
 
-eta=0.
+eta=0.0
 total_timesteps=1000
-sampling_timesteps=250
+sampling_timesteps=1000
 
-test_image_path='/n/holyscratch01/howe_lab_seas/dperrin/MAE-data/docker-data/fixedsize-torch/validation/91d22630-fdb1-11ee-a39e-0242ac110004.png'
+#test_image_path='/n/holyscratch01/howe_lab_seas/dperrin/MAE-data/docker-data/fixedsize-torch/validation/91d22630-fdb1-11ee-a39e-0242ac110004.png'
+#test_image_path='/n/home09/dperrin/repos/MAE/data/singles/training.png'
+test_image_path='/n/home09/dperrin/repos/MAE/data/singles/validation.png'
+
 test_img = Image.open(test_image_path)
 transform = T.Compose([
             T.Resize(image_size),
@@ -61,6 +66,7 @@ t=transform(test_img)
 t=t.to(torch.device("cuda:0"))
 
 ref_image=rearrange(repeat(t, '1 h w -> c h w', c=3),'c h w -> 1 c h w')
+ref_image=diffusion.normalize(ref_image)
 
 mask=np.zeros(image_size)
 mask[0::2]=1
@@ -81,15 +87,16 @@ all_images=all_images.to(device)
 test=[]
 
 with torch.inference_mode():
-    for li in range(num_samples):    
-        times = torch.linspace(-1, total_timesteps - 1, steps = sampling_timesteps + 1)   # type: ignore # [-1, 0, 1, 2, ..., T-1] when sampling_timesteps == total_timesteps
+    for li in range(num_samples):   
+        
+        # type: ignore # [-1, 0, 1, 2, ..., T-1] when sampling_timesteps == total_timesteps
+        times = torch.linspace(-1, total_timesteps - 1, steps = sampling_timesteps + 1)   
         times = list(reversed(times.int().tolist()))
         time_pairs = list(zip(times[:-1], times[1:])) # [(T-1, T-2), (T-2, T-3), ..., (1, 0), (0, -1)]
 
         x_noizier = torch.randn(shape, device = device)
-        ref_noize = x_noizier
-        ref_image=diffusion.normalize(ref_image)
-        imgs = [x_noizier]
+        ref_noize = x_noizier.clone()
+      #  imgs = [x_noizier]
       
         x_current = None
 
@@ -106,7 +113,6 @@ with torch.inference_mode():
             model_output = diffusion.model(x_noizier, time_cond, None)
             v = model_output
             
-            
             x_current=x_t=alpha.sqrt()*x_noizier-(1-alpha).sqrt()*v
             
             alpha_r= 1. / diffusion.alphas_cumprod[time]
@@ -115,7 +121,7 @@ with torch.inference_mode():
     
             if time_next < 0:
                 x_noizier = x_current
-                imgs.append(x_noizier)
+            #    imgs.append(x_noizier)
                 continue
 
             
@@ -130,7 +136,7 @@ with torch.inference_mode():
                     c * pred_noise + \
                     sigma * noise
 
-            imgs.append(x_noizier)
+            #imgs.append(x_noizier)
 
         #   ret = img if not return_all_timesteps else torch.stack(imgs, dim = 1)
         ret=x_noizier
@@ -138,6 +144,9 @@ with torch.inference_mode():
         #utils.save_image(ret, str('results/' f'sample-new-{li}-{milestone}.png'))
        
         all_images = torch.cat((all_images, ret), 0)
+        #all_images = torch.cat((all_images, x_noizier), 0)
+        print('RMS: ', torch.mean(torch.square(ret - diffusion.unnormalize(ref_image))))
+       
     print(all_images.shape)
     #all_images = torch.cat(all_images, ret, dim = 0)
 

@@ -4,6 +4,7 @@ from denoising_diffusion_pytorch import Unet, GaussianDiffusion, Trainer # type:
 from USUtils.USLoader import *
 from torch.optim import Adam
 
+#milestone=153
 milestone=0
 print('got in')
 model = Unet(
@@ -22,10 +23,11 @@ diffusion = GaussianDiffusion(
 trainer = Trainer(
     diffusion,
     '/n/holyscratch01/howe_lab_seas/dperrin/MAE-data/docker-data/fixedsize-torch/train/',
+    results_folder = '/n/holyscratch01/howe_lab_seas/dperrin/MAE-data/results/',
     save_and_sample_every =1000,
     train_batch_size = 16,
     train_lr = 8e-5,
-    train_num_steps = 100000,         # total training steps
+    train_num_steps = 200000,         # total training steps
     gradient_accumulate_every = 2,    # gradient accumulation steps
     ema_decay = 0.995,                # exponential moving average decay
     amp = True,                       # turn on mixed precision

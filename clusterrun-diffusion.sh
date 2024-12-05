@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH -c 1 # Number of cores requested
-#SBATCH -t 340 # Runtime in minutes
+#SBATCH -t 60 # Runtime in minutes
 #SBATCH -p gpu_test # Partition to submit to
 #SBATCH --gpus 1
-#SBATCH --mem=16000 # Memory per node in MB (see also --mem-per-cpu)
+#SBATCH --mem=64000 # Memory per node in MB (see also --mem-per-cpu)
 #SBATCH --open-mode=append # Append when writing files
 #SBATCH -o /n/home09/dperrin/repos/MAE/logs/cluster/DIFF_%j.out # Standard out goes to this file
 #SBATCH -e /n/home09/dperrin/repos/MAE/logs/cluster/DIFF_%j.err # Standard err goes to this filehostname
