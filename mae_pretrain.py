@@ -134,7 +134,8 @@ if __name__ == '__main__':
        
                         predicted_img = conv(img)
                    
-                        blur_loss = torch.mean(torch.square(predicted_img - img))
+                        #blur_loss = torch.mean(torch.square(predicted_img - img))
+                        blur_loss = torch.mean(torch.square((predicted_img *mask + (1-mask) * img) - img))
                         blur_losses.append(blur_loss.item())            
                     
                     avg_blur_loss = sum(blur_losses) / len(blur_losses)
