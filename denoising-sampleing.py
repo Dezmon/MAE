@@ -14,7 +14,7 @@ from einops import rearrange, reduce, repeat # type: ignore
 
 
 #milestone=86
-milestone=0
+milestone=24
 
 print('got in')
 model = Unet(
@@ -55,6 +55,7 @@ sampling_timesteps=1000
 #test_image_path='/n/holyscratch01/howe_lab_seas/dperrin/MAE-data/docker-data/fixedsize-torch/validation/91d22630-fdb1-11ee-a39e-0242ac110004.png'
 #test_image_path='/n/home09/dperrin/repos/MAE/data/singles/training.png'
 test_image_path='/n/home09/dperrin/repos/MAE/data/singles/validation.png'
+test_image_path='docker-data/data/fixedsize-torch/validation/91ddd1d8-fdb1-11ee-a265-0242ac110004.png' 
 
 test_img = Image.open(test_image_path)
 transform = T.Compose([
@@ -99,15 +100,18 @@ with torch.inference_mode():
       #  imgs = [x_noizier]
       
         x_current = None
-
+        first = True
         for time, time_next in tqdm(time_pairs, desc = 'sampling loop time step'):
             
             time_cond = torch.full((batch,), time, device = device, dtype = torch.long)
 
             alpha = diffusion.alphas_cumprod[time]
+            if first == True:
+                first = False    
+                ref_img_noize=diffusion.q_sample(x_start =ref_image, t = time_cond, noise = ref_noize)
+            else :
+                ref_img_noize=diffusion.q_sample(x_start =ref_image, t = time_cond, noise = pred_noise)    
             
-            ref_img_noize=diffusion.q_sample(x_start =ref_image, t = time_cond, noise = ref_noize)
-
             x_noizier=x_noizier*(1-mask)+ref_img_noize*(mask)
             
             model_output = diffusion.model(x_noizier, time_cond, None)
